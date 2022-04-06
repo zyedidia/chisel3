@@ -1,9 +1,3 @@
-# chisel-circt
-
-[![Maven Central](https://img.shields.io/maven-central/v/com.sifive/chisel-circt_2.13)](https://maven-badges.herokuapp.com/maven-central/com.sifive/chisel-circt_2.13)
-[![Sonatype Nexus (Snapshots)](https://img.shields.io/nexus/s/com.sifive/chisel-circt_2.13?server=https%3A%2F%2Foss.sonatype.org)](https://oss.sonatype.org/content/repositories/snapshots/com/sifive/chisel-circt_2.13/)
-[![Javadoc](https://javadoc.io/badge2/com.sifive/chisel-circt_2.13/javadoc.svg)](https://javadoc.io/doc/com.sifive/chisel-circt_2.13)
-
 # Compile Chisel using CIRCT/MLIR
 
 This library provides a `ChiselStage`-like interface for compiling a Chisel circuit using the MLIR-based FIRRTL Compiler (MFC) included in the [llvm/circt](https://github.com/llvm/circt) project.
@@ -15,24 +9,13 @@ If you suspect a CIRCT bug or have questions, you can file an issue on this repo
 
 ## Setup
 
-Include the following in your `build.sbt`.
-See the badges above for latest release or snapshot version.
-
-``` scala
-libraryDependencies += "com.sifive" %% "chisel-circt" % "X.Y.Z"
-```
-
-Additionally, install CIRCT.
+Install CIRCT.
 You can either:
 
 1. Build and install from [source](https://github.com/llvm/circt)
 2. Use a [nightly docker image](https://github.com/orgs/circt/packages/container/package/images%2Fcirct) and the [`firtool` script](https://github.com/circt/images/blob/trunk/circt/utils/firtool)
 
 After CIRCT installation is complete, you need `firtool` (the tool provided with CIRCT to compile FIRRTL circuits) on your path so `chisel-circt` can use it.
-
-### Base Project
-
-Alternatively, a base project is provided in [sifive/chisel-circt-demo](https://github.com/sifive/chisel-circt-demo).
 
 ## Example
 
