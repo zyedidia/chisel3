@@ -53,9 +53,9 @@ abstract class RawModule(implicit moduleCompileOptions: CompileOptions) extends 
     namePorts(names)
 
     // Then everything else gets named
-    for ((node, name) <- names) {
-      node.suggestName(name)
-    }
+    //for ((node, name) <- names) {
+    //    node.suggestNameInternal(name)
+    //}
 
     // All suggestions are in, force names to every node.
     for (id <- getIds) {
