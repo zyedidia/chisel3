@@ -42,6 +42,8 @@ private[plugin] class BundleComponent(val global: Global, arguments: ChiselPlugi
     def inferType(t: Tree): Type = localTyper.typed(t, nsc.Mode.TYPEmode).tpe
 
     val bundleTpe:      Type = inferType(tq"chisel3.Bundle")
+    val recordTpe:      Type = inferType(tq"chisel3.Record")
+    val autoCloneTpe:   Type = inferType(tq"chisel3.experimental.AutoCloneType")
     val dataTpe:        Type = inferType(tq"chisel3.Data")
     val ignoreSeqTpe:   Type = inferType(tq"chisel3.IgnoreSeqInBundle")
     val seqOfDataTpe:   Type = inferType(tq"scala.collection.Seq[chisel3.Data]")
@@ -49,7 +51,9 @@ private[plugin] class BundleComponent(val global: Global, arguments: ChiselPlugi
     val itStringAnyTpe: Type = inferType(tq"scala.collection.Iterable[(String,Any)]")
 
     // Not cached because it should only be run once per class (thus once per Type)
-    def isBundle(sym: Symbol): Boolean = { sym.tpe <:< bundleTpe }
+    def isBundleType(sym: Symbol): Boolean = { sym.tpe <:< bundleTpe }
+
+    def isAutoCloneType(sym: Symbol): Boolean = { sym.tpe <:< autoCloneTpe }
 
     def isIgnoreSeqInBundle(sym: Symbol): Boolean = { sym.tpe <:< ignoreSeqTpe }
 
@@ -109,135 +113,134 @@ private[plugin] class BundleComponent(val global: Global, arguments: ChiselPlugi
       (primaryConstructor, paramAccessors.toList)
     }
 
+    def generateAutoCloneType(record: ClassDef, thiz: global.This): Option[Tree] = {
+      val (con, params) = getConstructorAndParams(record.impl.body)
+      if (con.isEmpty) {
+        global.reporter.warning(record.pos, "Unable to determine primary constructor!")
+        return None
+      }
+
+      val constructor = con.get
+
+      // The params have spaces after them (Scalac implementation detail)
+      val paramLookup: String => Symbol = params.map(sym => sym.name.toString.trim -> sym).toMap
+
+      // Create a this.<ref> for each field matching order of constructor arguments
+      // List of Lists because we can have multiple parameter lists
+      val conArgs: List[List[Tree]] =
+        constructor.vparamss.map(_.map { vp =>
+          val p = paramLookup(vp.name.toString)
+          // Make this.<ref>
+          val select = gen.mkAttributedSelect(thiz.asInstanceOf[Tree], p)
+          // Clone any Data parameters to avoid field aliasing, need full clone to include direction
+          if (isData(vp.symbol)) cloneTypeFull(select.asInstanceOf[Tree]) else select
+        })
+
+      val tparamList = record.tparams.map { t => Ident(t.symbol) }
+      val ttpe =
+        if (tparamList.nonEmpty) AppliedTypeTree(Ident(record.symbol), tparamList) else Ident(record.symbol)
+      val newUntyped = New(ttpe, conArgs)
+      val neww = localTyper.typed(newUntyped)
+
+      // Create the symbol for the method and have it be associated with the Record class
+      val cloneTypeSym =
+        record.symbol.newMethod(TermName("_cloneTypeImpl"), record.symbol.pos.focus, Flag.OVERRIDE | Flag.PROTECTED)
+      // Handwritten cloneTypes don't have the Method flag set, unclear if it matters
+      cloneTypeSym.resetFlag(Flags.METHOD)
+      // Need to set the type to chisel3.Record for the override to work
+      cloneTypeSym.setInfo(NullaryMethodType(recordTpe))
+
+      Some(localTyper.typed(DefDef(cloneTypeSym, neww)))
+    }
+
+    def generateElements(bundle: ClassDef, thiz: global.This): Tree = {
+      /* extract the true fields from the super classes a given bundle
+       * depth argument can be helpful for debugging
+       */
+      def getAllBundleFields(bundleSymbol: Symbol, depth: Int = 0): List[(String, Tree)] = {
+
+        def isBundleField(member: Symbol): Boolean = {
+          if (!member.isAccessor) {
+            false
+          } else if (isData(member.tpe.typeSymbol)) {
+            true
+          } else if (isOptionOfData(member)) {
+            true
+          } else if (isSeqOfData(member)) {
+            // This field is passed along, even though it is illegal
+            // An error for this will be generated in `Bundle.elements`
+            // It would be possible here to check for Seq[Data] and make a compiler error, but
+            // that would be a API error difference. See reference in docs/chisel-plugin.md
+            // If Bundle is subclass of IgnoreSeqInBundle then don't pass this field along
+
+            !isIgnoreSeqInBundle(bundleSymbol)
+          } else {
+            // none of the above
+            false
+          }
+        }
+
+        val currentFields = bundleSymbol.info.members.flatMap {
+
+          case member if member.isPublic =>
+            if (isBundleField(member)) {
+              // The params have spaces after them (Scalac implementation detail)
+              Some(member.name.toString.trim -> gen.mkAttributedSelect(thiz.asInstanceOf[Tree], member))
+            } else {
+              None
+            }
+
+          case _ => None
+        }.toList
+
+        val allParentFields = bundleSymbol.parentSymbols.flatMap { parentSymbol =>
+          val fieldsFromParent = if (depth < 1 && !isExactBundle(bundleSymbol)) {
+            val foundFields = getAllBundleFields(parentSymbol, depth + 1)
+            foundFields
+          } else {
+            List()
+          }
+          fieldsFromParent
+        }
+        allParentFields ++ currentFields
+      }
+
+      val elementArgs = getAllBundleFields(bundle.symbol)
+
+      val elementsImplSym =
+        bundle.symbol.newMethod(TermName("_elementsImpl"), bundle.symbol.pos.focus, Flag.OVERRIDE | Flag.PROTECTED)
+      elementsImplSym.resetFlag(Flags.METHOD)
+      elementsImplSym.setInfo(NullaryMethodType(itStringAnyTpe))
+
+      val elementsImpl = localTyper.typed(
+        DefDef(elementsImplSym, q"scala.collection.immutable.Vector.apply[(String, Any)](..$elementArgs)")
+      )
+
+      elementsImpl
+    }
+
     override def transform(tree: Tree): Tree = tree match {
 
-      case bundle: ClassDef if isBundle(bundle.symbol) && !bundle.mods.hasFlag(Flag.ABSTRACT) =>
+      case record: ClassDef if isAutoCloneType(record.symbol) && !record.mods.hasFlag(Flag.ABSTRACT) =>
+        val isBundle: Boolean = isBundleType(record.symbol)
+
+        val thiz: global.This = gen.mkAttributedThis(record.symbol)
+
         // ==================== Generate _cloneTypeImpl ====================
-        val (con, params) = getConstructorAndParams(bundle.impl.body)
-        if (con.isEmpty) {
-          global.reporter.warning(bundle.pos, "Unable to determine primary constructor!")
-          return super.transform(tree)
-        }
+        val cloneTypeImplOpt = generateAutoCloneType(record, thiz)
 
-        val constructor = con.get
-        val thiz = gen.mkAttributedThis(bundle.symbol)
+        // ==================== Generate val elements (Bundles only) ====================
+        val elementsImplOpt = if (isBundle) Some(generateElements(record, thiz)) else None
 
-        // The params have spaces after them (Scalac implementation detail)
-        val paramLookup: String => Symbol = params.map(sym => sym.name.toString.trim -> sym).toMap
-
-        val cloneTypeImplOpt = if (!bundle.mods.hasFlag(Flag.ABSTRACT)) {
-          // Create a this.<ref> for each field matching order of constructor arguments
-          // List of Lists because we can have multiple parameter lists
-          val conArgs: List[List[Tree]] =
-            constructor.vparamss.map(_.map { vp =>
-              val p = paramLookup(vp.name.toString)
-              // Make this.<ref>
-              val select = gen.mkAttributedSelect(thiz.asInstanceOf[Tree], p)
-              // Clone any Data parameters to avoid field aliasing, need full clone to include direction
-              if (isData(vp.symbol)) cloneTypeFull(select.asInstanceOf[Tree]) else select
-            })
-
-          val tparamList = bundle.tparams.map { t => Ident(t.symbol) }
-          val ttpe =
-            if (tparamList.nonEmpty) AppliedTypeTree(Ident(bundle.symbol), tparamList) else Ident(bundle.symbol)
-          val newUntyped = New(ttpe, conArgs)
-          val neww = localTyper.typed(newUntyped)
-
-          // Create the symbol for the method and have it be associated with the Bundle class
-          val cloneTypeSym =
-            bundle.symbol.newMethod(TermName("_cloneTypeImpl"), bundle.symbol.pos.focus, Flag.OVERRIDE | Flag.PROTECTED)
-          // Handwritten cloneTypes don't have the Method flag set, unclear if it matters
-          cloneTypeSym.resetFlag(Flags.METHOD)
-          // Need to set the type to chisel3.Bundle for the override to work
-          cloneTypeSym.setInfo(NullaryMethodType(bundleTpe))
-
-          Some(localTyper.typed(DefDef(cloneTypeSym, neww)))
+        // ==================== Generate _usingPlugin (Bundles only) ====================
+        val usingPluginOpt = if (isBundle) {
+          // Unclear why quasiquotes work here but didn't for cloneTypeSym, maybe they could.
+          Some(localTyper.typed(q"override protected def _usingPlugin: Boolean = true"))
         } else {
-          // Don't create if this Bundle is abstract
           None
         }
 
-        // ==================== Generate val elements ====================
-
-        /* Test to see if the bundle found is amenable to having it's elements
-         * converted to an immediate form that will not require reflection
-         */
-        def isSupportedBundleType: Boolean = !bundle.mods.hasFlag(Flag.ABSTRACT)
-
-        val elementsImplOpt = if (isSupportedBundleType) {
-          /* extract the true fields from the super classes a given bundle
-           * depth argument can be helpful for debugging
-           */
-          def getAllBundleFields(bundleSymbol: Symbol, depth: Int = 0): List[(String, Tree)] = {
-
-            def isBundleField(member: Symbol): Boolean = {
-              if (!member.isAccessor) {
-                false
-              } else if (isData(member.tpe.typeSymbol)) {
-                true
-              } else if (isOptionOfData(member)) {
-                true
-              } else if (isSeqOfData(member)) {
-                // This field is passed along, even though it is illegal
-                // An error for this will be generated in `Bundle.elements`
-                // It would be possible here to check for Seq[Data] and make a compiler error, but
-                // that would be a API error difference. See reference in docs/chisel-plugin.md
-                // If Bundle is subclass of IgnoreSeqInBundle then don't pass this field along
-
-                !isIgnoreSeqInBundle(bundleSymbol)
-              } else {
-                // none of the above
-                false
-              }
-            }
-
-            val currentFields = bundleSymbol.info.members.flatMap {
-
-              case member if member.isPublic =>
-                if (isBundleField(member)) {
-                  // The params have spaces after them (Scalac implementation detail)
-                  Some(member.name.toString.trim -> gen.mkAttributedSelect(thiz.asInstanceOf[Tree], member))
-                } else {
-                  None
-                }
-
-              case _ => None
-            }.toList
-
-            val allParentFields = bundleSymbol.parentSymbols.flatMap { parentSymbol =>
-              val fieldsFromParent = if (depth < 1 && !isExactBundle(bundleSymbol)) {
-                val foundFields = getAllBundleFields(parentSymbol, depth + 1)
-                foundFields
-              } else {
-                List()
-              }
-              fieldsFromParent
-            }
-            allParentFields ++ currentFields
-          }
-
-          val elementArgs = getAllBundleFields(bundle.symbol)
-
-          val elementsImplSym =
-            bundle.symbol.newMethod(TermName("_elementsImpl"), bundle.symbol.pos.focus, Flag.OVERRIDE | Flag.PROTECTED)
-          elementsImplSym.resetFlag(Flags.METHOD)
-          elementsImplSym.setInfo(NullaryMethodType(itStringAnyTpe))
-
-          val elementsImpl = localTyper.typed(
-            DefDef(elementsImplSym, q"scala.collection.immutable.Vector.apply[(String, Any)](..$elementArgs)")
-          )
-
-          Some(elementsImpl)
-        } else {
-          // No code generated for elements accessor
-          None
-        }
-
-        // ==================== Generate _usingPlugin ====================
-        // Unclear why quasiquotes work here but didn't for cloneTypeSym, maybe they could.
-        val usingPluginOpt = Some(localTyper.typed(q"override protected def _usingPlugin: Boolean = true"))
-
-        val withMethods = deriveClassDef(bundle) { t =>
+        val withMethods = deriveClassDef(record) { t =>
           deriveTemplate(t)(_ ++ cloneTypeImplOpt ++ usingPluginOpt ++ elementsImplOpt)
         }
 
