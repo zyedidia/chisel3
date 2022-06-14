@@ -47,17 +47,10 @@ abstract class RawModule(implicit moduleCompileOptions: CompileOptions) extends 
     require(!_closed, "Can't generate module more than once")
     _closed = true
 
-    val names = nameIds(classOf[RawModule])
-
     // Ports get first naming priority, since they are part of a Module's IO spec
-    namePorts(names)
+    namePorts()
 
-    // Then everything else gets named
-    //for ((node, name) <- names) {
-    //    node.suggestNameInternal(name)
-    //}
-
-    // All suggestions are in, force names to every node.
+    // Ports are named, now name everything else
     for (id <- getIds) {
       id match {
         case id: ModuleClone[_]   => id.setRefAndPortsRef(_namespace) // special handling
@@ -86,10 +79,7 @@ abstract class RawModule(implicit moduleCompileOptions: CompileOptions) extends 
             }
           } // else, don't name unbound types
       }
-      id._onModuleClose
     }
-
-    closeUnboundIds(names)
 
     val firrtlPorts = getModulePorts.map { port: Data =>
       // Special case Vec to make FIRRTL emit the direction of its
@@ -115,7 +105,7 @@ abstract class RawModule(implicit moduleCompileOptions: CompileOptions) extends 
     // Generate IO invalidation commands to initialize outputs as unused,
     //  unless the client wants explicit control over their generation.
     val invalidateCommands = {
-      if (!compileOptions.explicitInvalidate) {
+      if (!compileOptions.explicitInvalidate || this.isInstanceOf[ImplicitInvalidate]) {
         getModulePorts.map { port => DefInvalid(UnlocatableSourceInfo, port.ref) }
       } else {
         Seq()
@@ -129,7 +119,7 @@ abstract class RawModule(implicit moduleCompileOptions: CompileOptions) extends 
   private[chisel3] def initializeInParent(parentCompileOptions: CompileOptions): Unit = {
     implicit val sourceInfo = UnlocatableSourceInfo
 
-    if (!parentCompileOptions.explicitInvalidate) {
+    if (!parentCompileOptions.explicitInvalidate || Builder.currentModule.get.isInstanceOf[ImplicitInvalidate]) {
       for (port <- getModulePorts) {
         pushCommand(DefInvalid(sourceInfo, port.ref))
       }
@@ -145,6 +135,9 @@ trait RequireSyncReset extends Module {
   override private[chisel3] def mkReset: Bool = Bool()
 }
 
+/** Mix with a [[RawModule]] to automatically connect DontCare to the module's ports, wires, and children instance IOs. */
+trait ImplicitInvalidate { self: RawModule => }
+
 package object internal {
 
   import scala.annotation.implicitNotFound
@@ -153,6 +146,20 @@ package object internal {
 
   /** Marker trait for modules that are not true modules */
   private[chisel3] trait PseudoModule extends BaseModule
+
+  /** Creates a name String from a prefix and a seed
+    * @param prefix The prefix associated with the seed (must be in correct order, *not* reversed)
+    * @param seed The seed for computing the name (if available)
+    */
+  def buildName(seed: String, prefix: Prefix): String = {
+    val builder = new StringBuilder()
+    prefix.foreach { p =>
+      builder ++= p
+      builder += '_'
+    }
+    builder ++= seed
+    builder.toString
+  }
 
   // Private reflective version of "val io" to maintain Chisel.Module semantics without having
   // io as a virtual method. See https://github.com/freechipsproject/chisel3/pull/1550 for more

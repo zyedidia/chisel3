@@ -87,7 +87,6 @@ trait InstanceId {
 }
 
 private[chisel3] trait HasId extends InstanceId {
-  private[chisel3] def _onModuleClose: Unit = {}
   private[chisel3] var _parent: Option[BaseModule] = Builder.currentModule
 
   // Set if the returned top-level module of a nested call to the Chisel Builder, see Definition.apply
@@ -137,14 +136,18 @@ private[chisel3] trait HasId extends InstanceId {
     this
   }
 
-  private[chisel3] def suggestNameInternal(seed: => String): this.type = {
-    if (suggested_seed.isEmpty) suggested_seed = Some(seed)
-    naming_prefix = Builder.getPrefix
-    for (hook <- suggest_postseed_hooks.reverse) { hook(seed) }
-    this
+  // Private internal version of suggestName that tells you if the name changed
+  // Returns Some(old name, old prefix) if name changed, None otherwise
+  private[chisel3] def _suggestNameCheck(seed: => String): Option[(String, Prefix)] = {
+    val oldSeed = this.seedOpt
+    val oldPrefix = this.naming_prefix
+    suggestName(seed)
+    if (oldSeed.nonEmpty && (oldSeed != this.seedOpt || oldPrefix != this.naming_prefix)) {
+      Some(oldSeed.get -> oldPrefix)
+    } else None
   }
 
-  /** Takes the first seed suggested. Multiple calls to this function will be ignored (and will become an error in future).
+  /** Takes the first seed suggested. Multiple calls to this function will be ignored.
     * If the final computed name conflicts with another name, it may get uniquified by appending
     * a digit at the end.
     *
@@ -190,32 +193,13 @@ private[chisel3] trait HasId extends InstanceId {
     * @return the name, if it can be computed
     */
   private[chisel3] def _computeName(defaultPrefix: Option[String], defaultSeed: Option[String]): Option[String] = {
-
-    _computedName.getOrElse {
-
-      /** Computes a name of this signal, given the seed and prefix
-        * @param seed
-        * @param prefix
-        * @return
-        */
-      def buildName(seed: String, prefix: Prefix): String = {
-        val builder = new StringBuilder()
-        prefix.foreach { p =>
-          builder ++= p
-          builder += '_'
-        }
-        builder ++= seed
-        builder.toString
-      }
-
-      val result = if (hasSeed) {
-        Some(buildName(seedOpt.get, naming_prefix.reverse))
-      } else {
-        defaultSeed.map { default =>
-          defaultPrefix match {
-            case Some(p) => buildName(default, p :: naming_prefix.reverse)
-            case None    => buildName(default, naming_prefix.reverse)
-          }
+    if (hasSeed) {
+      Some(buildName(seedOpt.get, naming_prefix.reverse))
+    } else {
+      defaultSeed.map { default =>
+        defaultPrefix match {
+          case Some(p) => buildName(default, p :: naming_prefix.reverse)
+          case None    => buildName(default, naming_prefix.reverse)
         }
       }
       _computedName = Some(result)
@@ -276,18 +260,8 @@ private[chisel3] trait HasId extends InstanceId {
 
   private def refName(c: Component): String = _ref match {
     case Some(arg) => arg.fullName(c)
-    case None      =>
-      // This is super hacky but this is just for a short term deprecation
-      // These accesses occur after Chisel elaboration so we cannot use the normal
-      // Builder.deprecated mechanism, we have to create our own one off ErrorLog and print the
-      // warning right away.
-      val errors = new ErrorLog
-      val logger = new _root_.logger.Logger(this.getClass.getName)
-      val msg = "Accessing the .instanceName or .toTarget of non-hardware Data is deprecated. " +
-        "This will become an error in Chisel 3.6."
-      errors.deprecated(msg, None)
-      errors.checkpoint(logger)
-      _computeName(None, None).get
+    case None =>
+      throwException("You cannot access the .instanceName or .toTarget of non-hardware Data")
   }
 
   // Helper for reifying views if they map to a single Target
@@ -336,26 +310,6 @@ private[chisel3] trait HasId extends InstanceId {
       }
     case Some(ViewParent) => reifyParent.circuitName
     case Some(p)          => p.circuitName
-  }
-
-  private[chisel3] def getPublicFields(rootClass: Class[_]): Seq[java.lang.reflect.Method] = {
-    // Suggest names to nodes using runtime reflection
-    def getValNames(c: Class[_]): Set[String] = {
-      if (c == rootClass) {
-        Set()
-      } else {
-        getValNames(c.getSuperclass) ++ c.getDeclaredFields.map(_.getName)
-      }
-    }
-    val valNames = getValNames(this.getClass)
-    def isPublicVal(m: java.lang.reflect.Method) = {
-      val noParameters = m.getParameterTypes.isEmpty
-      val aVal = valNames.contains(m.getName)
-      val notAssignable = !m.getDeclaringClass.isAssignableFrom(rootClass)
-      val notWeirdVal = !m.getName.contains('$')
-      noParameters && aVal && notAssignable && notWeirdVal
-    }
-    this.getClass.getMethods.filter(isPublicVal).sortWith(_.getName < _.getName)
   }
 }
 
@@ -410,7 +364,9 @@ private[chisel3] class ChiselContext() {
   val viewNamespace = Namespace.empty
 }
 
-private[chisel3] class DynamicContext(val annotationSeq: AnnotationSeq, val throwOnFirstError: Boolean) {
+private[chisel3] class DynamicContext(
+  val annotationSeq:     AnnotationSeq,
+  val throwOnFirstError: Boolean) {
   val importDefinitionAnnos = annotationSeq.collect { case a: ImportDefinitionAnnotation[_] => a }
 
   // Ensure there are no repeated names for imported Definitions
@@ -726,8 +682,9 @@ private[chisel3] object Builder extends LazyLogging {
       throwException(m)
     }
   }
-  def warning(m:    => String): Unit = if (dynamicContextVar.value.isDefined) errors.warning(m)
-  def deprecated(m: => String, location: Option[String] = None): Unit =
+  def warning(m:      => String): Unit = if (dynamicContextVar.value.isDefined) errors.warning(m)
+  def warningNoLoc(m: => String): Unit = if (dynamicContextVar.value.isDefined) errors.warningNoLoc(m)
+  def deprecated(m:   => String, location: Option[String] = None): Unit =
     if (dynamicContextVar.value.isDefined) errors.deprecated(m, location)
 
   /** Record an exception as an error, and throw it.
