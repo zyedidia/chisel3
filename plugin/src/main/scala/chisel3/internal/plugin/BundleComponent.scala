@@ -43,7 +43,6 @@ private[plugin] class BundleComponent(val global: Global, arguments: ChiselPlugi
 
     val bundleTpe:      Type = inferType(tq"chisel3.Bundle")
     val recordTpe:      Type = inferType(tq"chisel3.Record")
-    val autoCloneTpe:   Type = inferType(tq"chisel3.experimental.AutoCloneType")
     val dataTpe:        Type = inferType(tq"chisel3.Data")
     val ignoreSeqTpe:   Type = inferType(tq"chisel3.IgnoreSeqInBundle")
     val seqOfDataTpe:   Type = inferType(tq"scala.collection.Seq[chisel3.Data]")
@@ -53,7 +52,7 @@ private[plugin] class BundleComponent(val global: Global, arguments: ChiselPlugi
     // Not cached because it should only be run once per class (thus once per Type)
     def isBundleType(sym: Symbol): Boolean = { sym.tpe <:< bundleTpe }
 
-    def isAutoCloneType(sym: Symbol): Boolean = { sym.tpe <:< autoCloneTpe }
+    def isRecordType(sym: Symbol): Boolean = { sym.tpe <:< recordTpe }
 
     def isIgnoreSeqInBundle(sym: Symbol): Boolean = { sym.tpe <:< ignoreSeqTpe }
 
@@ -88,7 +87,7 @@ private[plugin] class BundleComponent(val global: Global, arguments: ChiselPlugi
     def isNullaryMethodNamed(name: String, defdef: DefDef): Boolean =
       defdef.name.decodedName.toString == name && defdef.tparams.isEmpty && defdef.vparamss.isEmpty
 
-    def getConstructorAndParams(body: List[Tree]): (Option[DefDef], Seq[Symbol]) = {
+    def getConstructorAndParams(body: List[Tree], isBundle: Boolean): (Option[DefDef], Seq[Symbol]) = {
       val paramAccessors = mutable.ListBuffer[Symbol]()
       var primaryConstructor: Option[DefDef] = None
       body.foreach {
@@ -106,15 +105,21 @@ private[plugin] class BundleComponent(val global: Global, arguments: ChiselPlugi
           val msg = "Users cannot override _usingPlugin, it is for the compiler plugin's use only."
           global.globalError(d.pos, msg)
         case d: DefDef if isNullaryMethodNamed("cloneType", d) =>
-          val msg = "Users cannot override cloneType.  Let the compiler plugin generate it."
-          global.globalError(d.pos, msg)
+          if (isBundle) {
+            val msg = "Users cannot override cloneType. Let the compiler plugin generate it."
+            global.globalError(d.pos, msg)
+          } else {
+            val msg = "Users no longer need to override cloneType. Let the compiler plugin generate it. " +
+              "This will become an error in Chisel 3.6. You are advised to delete this method implementation."
+            global.reporter.warning(d.pos, msg)
+          }
         case _ =>
       }
       (primaryConstructor, paramAccessors.toList)
     }
 
-    def generateAutoCloneType(record: ClassDef, thiz: global.This): Option[Tree] = {
-      val (con, params) = getConstructorAndParams(record.impl.body)
+    def generateAutoCloneType(record: ClassDef, thiz: global.This, isBundle: Boolean): Option[Tree] = {
+      val (con, params) = getConstructorAndParams(record.impl.body, isBundle)
       if (con.isEmpty) {
         global.reporter.warning(record.pos, "Unable to determine primary constructor!")
         return None
@@ -221,13 +226,13 @@ private[plugin] class BundleComponent(val global: Global, arguments: ChiselPlugi
 
     override def transform(tree: Tree): Tree = tree match {
 
-      case record: ClassDef if isAutoCloneType(record.symbol) && !record.mods.hasFlag(Flag.ABSTRACT) =>
+      case record: ClassDef if isRecordType(record.symbol) && !record.mods.hasFlag(Flag.ABSTRACT) =>
         val isBundle: Boolean = isBundleType(record.symbol)
 
         val thiz: global.This = gen.mkAttributedThis(record.symbol)
 
         // ==================== Generate _cloneTypeImpl ====================
-        val cloneTypeImplOpt = generateAutoCloneType(record, thiz)
+        val cloneTypeImplOpt = generateAutoCloneType(record, thiz, isBundle)
 
         // ==================== Generate val elements (Bundles only) ====================
         val elementsImplOpt = if (isBundle) Some(generateElements(record, thiz)) else None

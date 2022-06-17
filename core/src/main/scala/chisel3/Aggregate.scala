@@ -1131,6 +1131,18 @@ abstract class Record(private[chisel3] implicit val compileOptions: CompileOptio
     * Results in "`\$className(elt0.name -> elt0.value, ...)`"
     */
   def toPrintable: Printable = toPrintableHelper(elements.toList)
+
+  override def cloneType: this.type = _cloneTypeImpl.asInstanceOf[this.type]
+
+  /** Implementation of cloneType that is overridden by the compiler plugin
+    *
+    * @note This should _never_ be overridden or called in user-code
+    */
+  protected def _cloneTypeImpl: Record = {
+    throwException(
+      s"Internal Error! This should have been implemented by the chisel3-plugin. Please file an issue against chisel3"
+    )
+  }
 }
 
 /**
@@ -1154,22 +1166,6 @@ package experimental {
 
   class BundleLiteralException(message: String) extends ChiselException(message)
   class VecLiteralException(message: String) extends ChiselException(message)
-
-  trait AutoCloneType { self: Record =>
-
-    override def cloneType: this.type = _cloneTypeImpl.asInstanceOf[this.type]
-
-    /** Implementation of cloneType that is overridden by the compiler plugin
-      *
-      * @note This should _never_ be overridden or called in user-code
-      */
-    protected def _cloneTypeImpl: Data = {
-      throwException(
-        s"Internal Error! This should have been implemented by the chisel3-plugin. Please file an issue against chisel3"
-      )
-    }
-  }
-
 }
 
 /** Base class for data types defined as a bundle of other data types.
@@ -1205,7 +1201,7 @@ package experimental {
   *   }
   * }}}
   */
-abstract class Bundle(implicit compileOptions: CompileOptions) extends Record with experimental.AutoCloneType {
+abstract class Bundle(implicit compileOptions: CompileOptions) extends Record {
 
   private def mustUsePluginMsg: String =
     "The Chisel compiler plugin is now required for compiling Chisel code. " +
