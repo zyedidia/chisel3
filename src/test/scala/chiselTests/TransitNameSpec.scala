@@ -24,14 +24,18 @@ class TransitNameSpec extends AnyFlatSpec with Matchers {
     /* Assign the IO of a new MyModule instance to value "bar". The instance will be named "bar". */
     val bar = {
       val x = Module(new MyModule)
-      TransitName(x.io, x) // TransitName returns the first argument
+      //TransitName(x.io, x) // TransitName returns the first argument
+      x.io
     }
 
     /* Assign the IO of a new MyModule instance to value "baz". The instance will be named "baz_generated". */
-    val baz = {
+    private val baz_generated = {
       val x = Module(new MyModule)
-      TransitName.withSuffix("_generated")(x.io, x) // TransitName returns the first argument
+      //TransitName.withSuffix("_generated")(x.io, x) // TransitName returns the first argument
+
     }
+
+    val baz = baz_generated
 
   }
 
