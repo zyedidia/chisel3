@@ -185,8 +185,6 @@ private[chisel3] trait HasId extends InstanceId {
     }
   }
 
-  private[chisel3] var _computedName: Option[Option[String]] = None
-
   /** Computes the name of this HasId, if one exists
     * @param defaultPrefix Optionally provide a default prefix for computing the name
     * @param defaultSeed Optionally provide default seed for computing the name
@@ -202,8 +200,6 @@ private[chisel3] trait HasId extends InstanceId {
           case None    => buildName(default, naming_prefix.reverse)
         }
       }
-      _computedName = Some(result)
-      result
     }
   }
 
