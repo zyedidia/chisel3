@@ -884,15 +884,21 @@ abstract class Data extends HasId with NamedComponent with SourceInfoDoc {
 }
 
 trait WireFactory {
-
   /** Construct a [[Wire]] from a type template
     * @param t The template from which to construct this wire
     */
-  def apply[T <: Data](t: T)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): T = {
+  def apply[T <: Data](source: => T)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): T = {
+    val prevId = Builder.idGen.value
+    val t = source // evaluate once (passed by name)
     if (compileOptions.declaredTypeMustBeUnbound) {
       requireIsChiselType(t, "wire type")
     }
-    val x = t.cloneTypeFull
+    val fresh = t match {
+      case b: Bundle => t._id > prevId && !b.hasExternalRef(prevId)
+      case _ => t._id > prevId
+    }
+
+    val x = if (fresh) t else t.cloneTypeFull
 
     // Bind each element of x to being a Wire
     x.bind(WireBinding(Builder.forcedUserModule, Builder.currentWhen))

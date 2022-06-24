@@ -19,7 +19,7 @@ class LazyCloneSpec extends ChiselFlatSpec {
       Foo.count += 1
     }
 
-    class MyModule extends Module {
+    class MyModule extends RawModule {
       val io = IO(Flipped(new Bundle {
         val foo = Output(new Foo)
         val bar = Input(new Foo)
