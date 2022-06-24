@@ -194,14 +194,9 @@ package experimental {
       val data = iodef // evaluate once (passed by name)
       requireIsChiselType(data, "io type")
 
-      val fresh = data match {
-        case b: Bundle => data._id > prevId && !b.hasExternalRef(prevId)
-        case _ => data._id > prevId
-      }
-
       // Clone the IO so we preserve immutability of data types
       // Note: we don't clone if the data is fresh (to avoid unnecessary clones)
-      val iodefClone = if (fresh) data else
+      val iodefClone = if (isFresh(data, prevId)) data else
         try {
           data.cloneTypeFull
         } catch {

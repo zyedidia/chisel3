@@ -40,12 +40,7 @@ object Reg {
     if (compileOptions.declaredTypeMustBeUnbound) {
       requireIsChiselType(t, "reg type")
     }
-    val fresh = t match {
-      case b: Bundle => t._id > prevId && !b.hasExternalRef(prevId)
-      case _ => t._id > prevId
-    }
-
-    val reg = if (fresh) t else t.cloneTypeFull
+    val reg = if (isFresh(t, prevId)) t else t.cloneTypeFull
     val clock = Node(Builder.forcedClock)
 
     reg.bind(RegBinding(Builder.forcedUserModule, Builder.currentWhen))

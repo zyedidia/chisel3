@@ -65,11 +65,7 @@ object SpecifiedDirection {
     if (compileOptions.checkSynthesizable) {
       requireIsChiselType(data)
     }
-    val fresh = data match {
-      case b: Bundle => data._id > prevId && !b.hasExternalRef(prevId)
-      case _ => data._id > prevId
-    }
-    val out = if (fresh) data else data.cloneType.asInstanceOf[T]
+    val out = if (isFresh(data, prevId)) data else data.cloneType.asInstanceOf[T]
     out.specifiedDirection = dir(out)
     out
   }
@@ -446,6 +442,15 @@ object Output {
 object Flipped {
   def apply[T <: Data](source: => T)(implicit compileOptions: CompileOptions): T = {
     SpecifiedDirection.specifiedDirection(source)(x => SpecifiedDirection.flip(x.specifiedDirection))
+  }
+}
+
+private[chisel3] object isFresh {
+  def apply[T <: Data](data: T, prevId: Long): Boolean = {
+    data match {
+      case b: Bundle => data._id > prevId && !b.hasExternalRef(prevId)
+      case _ => data._id > prevId
+    }
   }
 }
 
@@ -893,12 +898,7 @@ trait WireFactory {
     if (compileOptions.declaredTypeMustBeUnbound) {
       requireIsChiselType(t, "wire type")
     }
-    val fresh = t match {
-      case b: Bundle => t._id > prevId && !b.hasExternalRef(prevId)
-      case _ => t._id > prevId
-    }
-
-    val x = if (fresh) t else t.cloneTypeFull
+    val x = if (isFresh(t, prevId)) t else t.cloneTypeFull
 
     // Bind each element of x to being a Wire
     x.bind(WireBinding(Builder.forcedUserModule, Builder.currentWhen))
