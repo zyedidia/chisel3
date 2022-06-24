@@ -448,7 +448,7 @@ object Flipped {
 private[chisel3] object isFresh {
   def apply[T <: Data](data: T, prevId: Long): Boolean = {
     data match {
-      case b: Bundle => data._id > prevId && !b.hasExternalRef(prevId)
+      case b: Bundle => data._id > prevId && !b.hasExternalRef()
       case _ => data._id > prevId
     }
   }
