@@ -576,7 +576,7 @@ package experimental {
       * TODO(twigg): Specifically walk the Data definition to call out which nodes
       * are problematic.
       */
-    protected def IO[T <: Data](iodef: T): T = chisel3.experimental.IO.apply(iodef)
+    protected def IO[T <: Data](iodef: => T): T = chisel3.experimental.IO.apply(iodef)
 
     //
     // Internal Functions
