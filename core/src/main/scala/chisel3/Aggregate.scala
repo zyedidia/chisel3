@@ -1304,9 +1304,9 @@ abstract class Bundle(implicit compileOptions: CompileOptions) extends Record {
     }
   }
 
-  private[chisel3] def hasExternalRef(): Boolean = {
+  private[chisel3] def hasExternalRef(id: Long = this._id): Boolean = {
     for ((name, field) <- elements) {
-      if (field._id < this._id) {
+      if (field._id < id) {
         return true
       }
     }

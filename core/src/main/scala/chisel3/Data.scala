@@ -66,7 +66,7 @@ object SpecifiedDirection {
       requireIsChiselType(data)
     }
     val fresh = data match {
-      case b: Bundle => data._id > prevId && !b.hasExternalRef()
+      case b: Bundle => data._id > prevId && !b.hasExternalRef(prevId)
       case _ => data._id > prevId
     }
     val out = if (fresh) data else data.cloneType.asInstanceOf[T]
