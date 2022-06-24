@@ -187,20 +187,28 @@ package experimental {
       * requested (so that all calls to ports will return the same information).
       * Internal API.
       */
-    def apply[T <: Data](iodef: T): T = {
+    def apply[T <: Data](iodef: => T): T = {
       val module = Module.currentModule.get // Impossible to fail
       require(!module.isClosed, "Can't add more ports after module close")
-      requireIsChiselType(iodef, "io type")
+      val prevId = Builder.idGen.value
+      val data = iodef // evaluate once (passed by name)
+      requireIsChiselType(data, "io type")
+
+      val fresh = data match {
+        case b: Bundle => data._id > prevId && !b.hasExternalRef()
+        case _ => data._id > prevId
+      }
 
       // Clone the IO so we preserve immutability of data types
-      val iodefClone =
+      // Note: we don't clone if the data is fresh (to avoid unnecessary clones)
+      val iodefClone = if (fresh) data else
         try {
-          iodef.cloneTypeFull
+          data.cloneTypeFull
         } catch {
           // For now this is going to be just a deprecation so we don't suddenly break everyone's code
           case e: AutoClonetypeException =>
-            Builder.deprecated(e.getMessage, Some(s"${iodef.getClass}"))
-            iodef
+            Builder.deprecated(e.getMessage, Some(s"${data.getClass}"))
+            data
         }
       module.bindIoInPlace(iodefClone)
       iodefClone

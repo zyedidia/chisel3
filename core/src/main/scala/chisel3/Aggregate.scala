@@ -1302,7 +1302,15 @@ abstract class Bundle(implicit compileOptions: CompileOptions) extends Record {
         )
       }
     }
+  }
 
+  private[chisel3] def hasExternalRef(): Boolean = {
+    for ((name, field) <- elements) {
+      if (field._id < this._id) {
+        return true
+      }
+    }
+    return false
   }
 
   override def cloneType: this.type = {
