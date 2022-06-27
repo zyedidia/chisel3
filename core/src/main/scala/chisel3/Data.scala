@@ -65,7 +65,7 @@ object SpecifiedDirection {
     if (compileOptions.checkSynthesizable) {
       requireIsChiselType(data)
     }
-    val out = if (isFresh(data, prevId)) data else data.cloneType.asInstanceOf[T]
+    val out = if (!mustClone(data, prevId)) data else data.cloneType.asInstanceOf[T]
     out.specifiedDirection = dir(out)
     out
   }
@@ -445,12 +445,13 @@ object Flipped {
   }
 }
 
-private[chisel3] object isFresh {
+private[chisel3] object mustClone {
   def apply[T <: Data](data: T, prevId: Long): Boolean = {
-    data match {
-      case b: Bundle => data._id > prevId && !b.hasExternalRef()
-      case _ => data._id > prevId
-    }
+    if (data.hasBinding) true else
+      data match {
+        case b: Bundle => data._id <= prevId || b.hasExternalRef()
+        case _ => data._id <= prevId
+      }
   }
 }
 
@@ -521,6 +522,8 @@ abstract class Data extends HasId with NamedComponent with SourceInfoDoc {
     }
     _binding = Some(target)
   }
+
+  private[chisel3] def hasBinding: Boolean = _binding.isDefined
 
   // Similar to topBindingOpt except it explicitly excludes SampleElements which are bound but not
   // hardware
@@ -898,7 +901,7 @@ trait WireFactory {
     if (compileOptions.declaredTypeMustBeUnbound) {
       requireIsChiselType(t, "wire type")
     }
-    val x = if (isFresh(t, prevId)) t else t.cloneTypeFull
+    val x = if (!mustClone(t, prevId)) t else t.cloneTypeFull
 
     // Bind each element of x to being a Wire
     x.bind(WireBinding(Builder.forcedUserModule, Builder.currentWhen))
