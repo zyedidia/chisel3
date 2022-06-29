@@ -1304,13 +1304,24 @@ abstract class Bundle(implicit compileOptions: CompileOptions) extends Record {
     }
   }
 
-  private[chisel3] def hasExternalRef(id: Long = this._id): Boolean = {
+  // (initialized, memoized hasExternalRef)
+  private var memoExternalRef = (false, false)
+
+  private def hasExternalRefHelper(id: Long): Boolean = {
     for ((name, field) <- elements) {
       if (field._id < id) {
         return true
       }
     }
     return false
+  }
+
+  private[chisel3] def hasExternalRef(id: Long = this._id): Boolean = {
+    if (memoExternalRef._1) {
+      return memoExternalRef._2
+    }
+    memoExternalRef = (true, hasExternalRefHelper(id))
+    return memoExternalRef._2
   }
 
   override def cloneType: this.type = {
