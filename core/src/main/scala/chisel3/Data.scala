@@ -55,18 +55,17 @@ object SpecifiedDirection {
     }
 
   private[chisel3] def specifiedDirection[T <: Data](
-    source: => T
-  )(dir:    T => SpecifiedDirection
+    data:   T,
+    prevId: Long
+  )(dir:    SpecifiedDirection
   )(
     implicit compileOptions: CompileOptions
   ): T = {
-    val prevId = Builder.idGen.value
-    val data = source // evaluate source once (passed by name)
     if (compileOptions.checkSynthesizable) {
       requireIsChiselType(data)
     }
     val out = if (!data.mustClone(prevId)) data else data.cloneType.asInstanceOf[T]
-    out.specifiedDirection = dir(out)
+    out.specifiedDirection = dir
     out
   }
 
@@ -429,19 +428,25 @@ object chiselTypeOf {
   * Thus, an error will be thrown if these are used on bound Data
   */
 object Input {
-  def apply[T <: Data](source: => T)(implicit compileOptions: CompileOptions): T = {
-    SpecifiedDirection.specifiedDirection(source)(_ => SpecifiedDirection.Input)
+  def apply[T <: Data](t: => T)(implicit compileOptions: CompileOptions): T = {
+    val prevId = Builder.idGen.value
+    val source = t
+    SpecifiedDirection.specifiedDirection(source, prevId)(SpecifiedDirection.Input)
   }
 }
 object Output {
-  def apply[T <: Data](source: => T)(implicit compileOptions: CompileOptions): T = {
-    SpecifiedDirection.specifiedDirection(source)(_ => SpecifiedDirection.Output)
+  def apply[T <: Data](t: => T)(implicit compileOptions: CompileOptions): T = {
+    val prevId = Builder.idGen.value
+    val source = t
+    SpecifiedDirection.specifiedDirection(source, prevId)(SpecifiedDirection.Output)
   }
 }
 
 object Flipped {
-  def apply[T <: Data](source: => T)(implicit compileOptions: CompileOptions): T = {
-    SpecifiedDirection.specifiedDirection(source)(x => SpecifiedDirection.flip(x.specifiedDirection))
+  def apply[T <: Data](t: => T)(implicit compileOptions: CompileOptions): T = {
+    val prevId = Builder.idGen.value
+    val source = t
+    SpecifiedDirection.specifiedDirection(source, prevId)(SpecifiedDirection.flip(source.specifiedDirection))
   }
 }
 
@@ -469,7 +474,7 @@ abstract class Data extends HasId with NamedComponent with SourceInfoDoc {
   // * its id is older than prevId (not "freshly created")
   // * it is a bundle with a non-fresh member (external reference)
   private[chisel3] def mustClone(prevId: Long): Boolean = {
-    if (this.hasBinding || this._id <= prevId) true
+    if (this.hasBinding || this.specifiedDirection != SpecifiedDirection.Unspecified || this._id <= prevId) true
     else
       this match {
         case b: Bundle => b.hasExternalRef
@@ -490,6 +495,13 @@ abstract class Data extends HasId with NamedComponent with SourceInfoDoc {
   private var _specifiedDirection:         SpecifiedDirection = SpecifiedDirection.Unspecified
   private[chisel3] def specifiedDirection: SpecifiedDirection = _specifiedDirection
   private[chisel3] def specifiedDirection_=(direction: SpecifiedDirection) = {
+    if (_specifiedDirection != SpecifiedDirection.Unspecified) {
+      this match {
+        // Anything flies in compatibility mode
+        case t: Record if !t.compileOptions.dontAssumeDirectionality =>
+        case _ => throw RebindingException(s"Attempted reassignment of user-specified direction to $this")
+      }
+    }
     _specifiedDirection = direction
   }
 
