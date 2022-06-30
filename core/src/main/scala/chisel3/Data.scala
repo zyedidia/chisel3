@@ -65,7 +65,7 @@ object SpecifiedDirection {
     if (compileOptions.checkSynthesizable) {
       requireIsChiselType(data)
     }
-    val out = if (!mustClone(data, prevId)) data else data.cloneType.asInstanceOf[T]
+    val out = if (!data.mustClone(prevId)) data else data.cloneType.asInstanceOf[T]
     out.specifiedDirection = dir(out)
     out
   }
@@ -445,16 +445,6 @@ object Flipped {
   }
 }
 
-private[chisel3] object mustClone {
-  def apply[T <: Data](data: T, prevId: Long): Boolean = {
-    if (data.hasBinding) true else
-      data match {
-        case b: Bundle => data._id <= prevId || b.hasExternalRef()
-        case _ => data._id <= prevId
-      }
-  }
-}
-
 /** This forms the root of the type system for wire data types. The data value
   * must be representable as some number (need not be known at Chisel compile
   * time) of bits, and must have methods to pack / unpack structured data to /
@@ -474,6 +464,18 @@ abstract class Data extends HasId with NamedComponent with SourceInfoDoc {
     }
   }
 
+  // must clone a data if
+  // * it has a binding
+  // * its id is older than prevId (not "freshly created")
+  // * it is a bundle with a non-fresh member (external reference)
+  private[chisel3] def mustClone(prevId: Long): Boolean = {
+    if (data.hasBinding || data._id <= prevId) true else
+      data match {
+        case b: Bundle => b.hasExternalRef()
+        case _ => false
+      }
+  }
+
   override def autoSeed(name: String): this.type = {
     topBindingOpt match {
       // Ports are special in that the autoSeed will keep the first name, not the last name
@@ -487,13 +489,6 @@ abstract class Data extends HasId with NamedComponent with SourceInfoDoc {
   private var _specifiedDirection:         SpecifiedDirection = SpecifiedDirection.Unspecified
   private[chisel3] def specifiedDirection: SpecifiedDirection = _specifiedDirection
   private[chisel3] def specifiedDirection_=(direction: SpecifiedDirection) = {
-    // if (_specifiedDirection != SpecifiedDirection.Unspecified) {
-    //   this match {
-    //     // Anything flies in compatibility mode
-    //     case t: Record if !t.compileOptions.dontAssumeDirectionality =>
-    //     case _ => throw RebindingException(s"Attempted reassignment of user-specified direction to $this")
-    //   }
-    // }
     _specifiedDirection = direction
   }
 
@@ -901,7 +896,7 @@ trait WireFactory {
     if (compileOptions.declaredTypeMustBeUnbound) {
       requireIsChiselType(t, "wire type")
     }
-    val x = if (!mustClone(t, prevId)) t else t.cloneTypeFull
+    val x = if (!t.mustClone(prevId)) t else t.cloneTypeFull
 
     // Bind each element of x to being a Wire
     x.bind(WireBinding(Builder.forcedUserModule, Builder.currentWhen))

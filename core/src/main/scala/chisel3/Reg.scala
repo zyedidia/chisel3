@@ -40,7 +40,7 @@ object Reg {
     if (compileOptions.declaredTypeMustBeUnbound) {
       requireIsChiselType(t, "reg type")
     }
-    val reg = if (!mustClone(t, prevId)) t else t.cloneTypeFull
+    val reg = if (!t.mustClone(prevId)) t else t.cloneTypeFull
     val clock = Node(Builder.forcedClock)
 
     reg.bind(RegBinding(Builder.forcedUserModule, Builder.currentWhen))

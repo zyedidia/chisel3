@@ -196,7 +196,7 @@ package experimental {
 
       // Clone the IO so we preserve immutability of data types
       // Note: we don't clone if the data is fresh (to avoid unnecessary clones)
-      val iodefClone = if (!mustClone(data, prevId)) data else
+      val iodefClone = if (!data.mustClone(prevId)) data else
         try {
           data.cloneTypeFull
         } catch {
