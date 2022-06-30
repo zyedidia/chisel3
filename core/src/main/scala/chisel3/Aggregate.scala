@@ -1312,7 +1312,17 @@ abstract class Bundle(implicit compileOptions: CompileOptions) extends Record {
       value.get
     }
   }
-  private var externalRef = memoVal[Boolean](None, () => elements.forall(_._2._id < _id))
+  // I would like to use elements.forall(_._2._id < _id) here, but that causes an error
+  // in a downstream design
+  private def externalRefFn(): Boolean = {
+    for ((name, field) <- elements) {
+      if (field._id < _id) {
+        return true
+      }
+    }
+    return false
+  }
+  private var externalRef = memoVal[Boolean](None, externalRefFn)
   private[chisel3] def hasExternalRef(): Boolean = externalRef.get()
 
   override def cloneType: this.type = {

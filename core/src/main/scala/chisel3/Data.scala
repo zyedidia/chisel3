@@ -469,8 +469,8 @@ abstract class Data extends HasId with NamedComponent with SourceInfoDoc {
   // * its id is older than prevId (not "freshly created")
   // * it is a bundle with a non-fresh member (external reference)
   private[chisel3] def mustClone(prevId: Long): Boolean = {
-    if (data.hasBinding || data._id <= prevId) true else
-      data match {
+    if (this.hasBinding || this._id <= prevId) true else
+      this match {
         case b: Bundle => b.hasExternalRef()
         case _ => false
       }
