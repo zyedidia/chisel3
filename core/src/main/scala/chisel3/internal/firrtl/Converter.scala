@@ -159,7 +159,16 @@ private[chisel3] object Converter {
         )
       )
     case Connect(info, loc, exp) =>
-      Some(fir.Connect(convert(info), convert(loc, ctx, info), convert(exp, ctx, info)))
+      lazy val converted = convert(exp, ctx, info)
+      val v = exp match {
+        case Node(id) => id.getRef match {
+          case (Index(a, ILit(b))) =>
+            fir.DoPrim(firrtl.PrimOps.Bits, Seq(convert(a, ctx, info)), Seq(b, b), fir.UnknownType)
+          case _ => converted
+        }
+        case _ => converted
+      }
+      Some(fir.Connect(convert(info), convert(loc, ctx, info), v))
     case BulkConnect(info, loc, exp) =>
       Some(fir.PartialConnect(convert(info), convert(loc, ctx, info), convert(exp, ctx, info)))
     case Attach(info, locs) =>

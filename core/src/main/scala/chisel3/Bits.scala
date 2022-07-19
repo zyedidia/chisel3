@@ -119,7 +119,20 @@ sealed abstract class Bits(private[chisel3] val width: Width) extends Element wi
         case _                 =>
       }
 
-      pushOp(DefPrim(sourceInfo, Bool(), BitsExtractOp, this.ref, ILit(x), ILit(x)))
+      val reconstructedResolvedDirection = direction match {
+        case ActualDirection.Input  => SpecifiedDirection.Input
+        case ActualDirection.Output => SpecifiedDirection.Output
+        case ActualDirection.Bidirectional(ActualDirection.Default) | ActualDirection.Unspecified =>
+          SpecifiedDirection.Unspecified
+        case ActualDirection.Bidirectional(ActualDirection.Flipped) => SpecifiedDirection.Flip
+        case ActualDirection.Empty                                  => SpecifiedDirection.Unspecified
+      }
+
+      val bit = Bool()
+      bit.bind(ChildBinding(this), reconstructedResolvedDirection)
+      bit.setRef(this, x.toInt)
+      bit
+      // pushOp(DefPrim(sourceInfo, Bool(), BitsExtractOp, this.ref, ILit(x), ILit(x)))
     }
   }
 
