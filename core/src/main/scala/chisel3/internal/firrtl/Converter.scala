@@ -162,7 +162,7 @@ private[chisel3] object Converter {
       lazy val converted = convert(exp, ctx, info)
       val v = exp match {
         case Node(id) => id.getRef match {
-          case (Index(a, ILit(b))) =>
+          case (Index(a @ Node(_: Bits), ILit(b))) =>
             fir.DoPrim(firrtl.PrimOps.Bits, Seq(convert(a, ctx, info)), Seq(b, b), fir.UnknownType)
           case _ => converted
         }
