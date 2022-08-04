@@ -456,8 +456,8 @@ private[chisel3] object Builder extends LazyLogging {
     def buildAggName(id: HasId): Option[String] = {
       def getSubName(field: Data): Option[String] = field.getOptionRef.flatMap {
         case Slot(_, field)                    => Some(field) // Record
-        case RangeIndex(_, ILit(hi), ILit(lo)) => Some(hi.toString + ":" + lo.toString) // Vec static indexing
-        case Index(_, ILit(n))                 => Some(n.toString) // Vec static indexing
+        case RangeIndex(_, ILit(hi), ILit(lo)) => Some(hi.toString + ":" + lo.toString) // Static indexing
+        case Index(_, ILit(n))                 => Some(n.toString) // Static indexing
         case Index(_, ULit(n, _))              => Some(n.toString) // Vec lit indexing
         case Index(_, _: Node) => None // Vec dynamic indexing
         case ModuleIO(_, n) => Some(n) // BlackBox port
