@@ -90,6 +90,7 @@ object Arg {
   def earlyLocalName(id: HasId): String = id.getOptionRef match {
     case Some(Index(Node(imm), Node(value))) => s"${earlyLocalName(imm)}[${earlyLocalName(imm)}]"
     case Some(Index(Node(imm), arg))         => s"${earlyLocalName(imm)}[${arg.localName}]"
+    case Some(RangeIndex(Node(imm), hi, lo)) => s"${earlyLocalName(imm)}[${hi.localName}:${lo.localName}]"
     case Some(Slot(Node(imm), name))         => s"${earlyLocalName(imm)}.$name"
     case Some(arg)                           => arg.name
     case None =>
@@ -222,6 +223,13 @@ case class Index(imm: Arg, value: Arg) extends Arg {
   def name: String = s"[$value]"
   override def contextualName(ctx: Component): String = s"${imm.contextualName(ctx)}[${value.contextualName(ctx)}]"
   override def localName: String = s"${imm.localName}[${value.localName}]"
+}
+
+case class RangeIndex(imm: Arg, hi: Arg, lo: Arg) extends Arg {
+  def name: String = s"[$hi:$lo]"
+  override def contextualName(ctx: Component): String =
+    s"${imm.contextualName(ctx)}[${hi.contextualName(ctx)}:${lo.contextualName(ctx)}]"
+  override def localName: String = s"${imm.localName}[${hi.localName}:${lo.localName}]"
 }
 
 object Width {

@@ -208,8 +208,11 @@ private[chisel3] trait HasId extends InstanceId {
     }
   }
   private[chisel3] def setRef(parent: HasId, name:  String): Unit = setRef(Slot(Node(parent), name))
-  private[chisel3] def setRef(parent: HasId, index: Int):    Unit = setRef(Index(Node(parent), ILit(index)))
-  private[chisel3] def setRef(parent: HasId, index: UInt):   Unit = setRef(Index(Node(parent), index.ref))
+  private[chisel3] def setRef(parent: HasId, index: Int): Unit = setRef(Index(Node(parent), ILit(index)))
+  private[chisel3] def setRef(parent: HasId, hi:    Int, lo: Int): Unit = setRef(
+    RangeIndex(Node(parent), ILit(hi), ILit(lo))
+  )
+  private[chisel3] def setRef(parent: HasId, index: UInt): Unit = setRef(Index(Node(parent), index.ref))
   private[chisel3] def getRef:       Arg = _ref.get
   private[chisel3] def getOptionRef: Option[Arg] = _ref
 
@@ -452,9 +455,10 @@ private[chisel3] object Builder extends LazyLogging {
   def pushPrefix(d: HasId): Boolean = {
     def buildAggName(id: HasId): Option[String] = {
       def getSubName(field: Data): Option[String] = field.getOptionRef.flatMap {
-        case Slot(_, field)       => Some(field) // Record
-        case Index(_, ILit(n))    => Some(n.toString) // Vec static indexing
-        case Index(_, ULit(n, _)) => Some(n.toString) // Vec lit indexing
+        case Slot(_, field)                    => Some(field) // Record
+        case RangeIndex(_, ILit(hi), ILit(lo)) => Some(hi.toString + ":" + lo.toString) // Vec static indexing
+        case Index(_, ILit(n))                 => Some(n.toString) // Vec static indexing
+        case Index(_, ULit(n, _))              => Some(n.toString) // Vec lit indexing
         case Index(_, _: Node) => None // Vec dynamic indexing
         case ModuleIO(_, n) => Some(n) // BlackBox port
       }

@@ -68,6 +68,8 @@ private[chisel3] object Converter {
       fir.Reference(name, fir.UnknownType)
     case Slot(imm, name) =>
       fir.SubField(convert(imm, ctx, info), name, fir.UnknownType)
+    case RangeIndex(imm, ILit(hi), ILit(lo)) =>
+      fir.SubRangeIndex(convert(imm, ctx, info), castToInt(hi, "Hi"), castToInt(lo, "Lo"), fir.UnknownType)
     case Index(imm, ILit(idx)) =>
       fir.SubIndex(convert(imm, ctx, info), castToInt(idx, "Index"), fir.UnknownType)
     case Index(imm, value) =>
