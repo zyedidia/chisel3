@@ -888,6 +888,8 @@ case class Circuit(
     renames:     RenameMap = renames
   ) = Circuit(name, components, annotations, renames, newAnnotations)
 
+  def version: String = "1.1.0"
+
 }
 object Circuit
     extends scala.runtime.AbstractFunction4[String, Seq[Component], Seq[ChiselAnnotation], RenameMap, Circuit] {
